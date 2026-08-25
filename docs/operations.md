@@ -74,3 +74,20 @@ If authorization or tenant isolation fails:
 3. Roll back to the last known-good application version.
 4. Do not re-enable access until cross-tenant tests and audit reconstruction
    pass.
+
+
+## Experiment reproducibility boundary
+
+The built-in repair-order sample is an anonymized fixture. Its normalized JSON
+is persisted and addressed within an organization by a SHA-256 source hash;
+the fixture is not a customer-data import or a production DMS connection.
+
+The sample workflow keeps evaluation content in the pure, versioned
+`deterministic-simulator-v1` contract. Its serialized JSON is the input to the
+stored result hash. UUIDs, timestamps, request IDs, and database row versions
+are run metadata and do not affect that result hash.
+
+A future evaluator must introduce a new worker reference and contract test
+rather than silently changing an existing result contract. The simulator remains
+draft-only: it produces evidence and recommendations, but does not authorize or
+execute DMS, ACS, repair, or customer-communication actions.

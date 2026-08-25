@@ -4,6 +4,7 @@ import {
   requireSafeMutationRequest,
 } from "@/server/access";
 import { listExperiments } from "@/server/experiments";
+import { buildDeterministicEvaluation } from "@/lib/experiment-evaluation";
 import {
   ensureSampleRepairOrder,
   sha256,
@@ -68,22 +69,7 @@ export async function POST(
     const correlationId = crypto.randomUUID();
     const evidenceOneId = crypto.randomUUID();
     const evidenceTwoId = crypto.randomUUID();
-    const resultPayload = {
-      mode: "simulated",
-      actionBoundary: "draft_only",
-      recommendations: [
-        {
-          claim: "Inspect the front brake condition before making a repair recommendation.",
-          source: "Current MPI line 8",
-          informationNeeded: "Rotor thickness and runout measurements",
-        },
-        {
-          claim: "The previously declined coolant service may still be relevant.",
-          source: "RO 84721 declined services",
-          informationNeeded: "Current condition and applicable OEM interval",
-        },
-      ],
-    };
+    const resultPayload = buildDeterministicEvaluation(sampleRepairOrder);
     const resultHash = await sha256(JSON.stringify(resultPayload));
 
     try {

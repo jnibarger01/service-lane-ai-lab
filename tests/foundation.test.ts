@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildDeterministicEvaluation } from "../lib/experiment-evaluation.ts";
 import {
   permissionsForRole,
   requiredPermissionForExperimentTransition,
@@ -74,4 +75,20 @@ test("experiment validation rejects invalid state", () => {
       }),
     ValidationError,
   );
+});
+
+
+test("the simulator has a stable, draft-only evaluation contract", () => {
+  const fixture = {
+    mpi: "Front pads measured 3 mm. Road test duplicated concern.",
+    declinedServices: "Coolant service declined at 58,110 miles.",
+    mileage: 62447,
+  };
+  const first = buildDeterministicEvaluation(fixture);
+  const second = buildDeterministicEvaluation({ ...fixture });
+
+  assert.deepEqual(first, second);
+  assert.equal(first.actionBoundary, "draft_only");
+  assert.match(first.recommendations[0].source, /Front pads measured 3 mm/);
+  assert.match(first.recommendations[1].informationNeeded, /62,447 miles/);
 });
