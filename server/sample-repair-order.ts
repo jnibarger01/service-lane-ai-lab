@@ -1,6 +1,7 @@
 import type { AccessContext } from "@/server/access";
+import type { EvaluationFixture } from "@/lib/experiment-evaluation";
 
-const samplePayload = {
+export const samplePayload = {
   sourceReference: "SL-20481",
   customerConcern: "Vibration in steering wheel when braking from highway speed.",
   vinMasked: "JTMB1RFV5MD••4721",
@@ -15,7 +16,7 @@ const samplePayload = {
   warrantyStatus: "Basic warranty expired; coverage not evaluated for this concern.",
   transportation: "Customer waiting on site.",
   communicationPreference: "Text preferred; phone for authorization.",
-};
+} as const satisfies EvaluationFixture & Record<string, unknown>;
 
 export async function ensureSampleRepairOrder(context: AccessContext) {
   const source = JSON.stringify(samplePayload);
