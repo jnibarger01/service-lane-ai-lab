@@ -67,6 +67,15 @@ type EvidenceItem = {
   verification: string;
 };
 
+type ComparisonReport = {
+  left: { code: string; title: string; metrics: Record<string, number>; evidence: { total: number; verified: number; pending: number } };
+  right: { code: string; title: string; metrics: Record<string, number>; evidence: { total: number; verified: number; pending: number } };
+  metricDeltas: { metric: string; left: number; right: number; delta: number; direction: string }[];
+  evidenceSummary: { left: { total: number; verified: number; pending: number }; right: { total: number; verified: number; pending: number } };
+};
+
+type Replay = { run: { id: string; status: string; correlationId: string; modelName: string | null }; events: { type: string; at: string; claim?: string; source?: string; verificationStatus?: string }[]; result: { resultHash: string; workerReference: string; payload: unknown } | null };
+
 const seedExperiments: Experiment[] = [
   {
     id: "deferred-maintenance",
@@ -233,8 +242,8 @@ async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
+  const body = (await response.json()) as T & { error?: string | { message?: string } };
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : body.error?.message ?? `Request failed (${response.status})`);
   return body;
 }
 
@@ -247,6 +256,9 @@ export default function Home() {
   const [showCreate, setShowCreate] = useState(false);
   const [ranSample, setRanSample] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
+  const [comparisonReport, setComparisonReport] = useState<ComparisonReport | null>(null);
+  const [replay, setReplay] = useState<Replay | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState("");
   const [notice, setNotice] = useState("Connecting to persistent workspace…");
   const [libraryCategory, setLibraryCategory] = useState("All");
   const [librarySearch, setLibrarySearch] = useState("");
@@ -448,13 +460,15 @@ export default function Home() {
     try {
       const response = await apiRequest<{
         experiments: Experiment[];
-        run: { correlationId: string; verificationStatus: string };
+        run: { id: string; correlationId: string; verificationStatus: string };
       }>(`/api/experiments/${selected.id}/runs`, {
         method: "POST",
         body: JSON.stringify({ expectedVersion: selected.recordVersion }),
       });
       replaceExperiments(response.experiments, selected.id);
       setRanSample(true);
+      setSelectedRunId(response.run.id);
+      setReplay(null);
       setCompareMode(true);
       setNotice("Persistent simulated run complete · verification pending human review");
     } catch (error) {
@@ -462,6 +476,24 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const loadComparison = async () => {
+    const other = experiments.find((item) => item.id !== selected?.id && item.status !== "Archived");
+    if (!selected || !other) return setNotice("At least two active experiments are required");
+    try {
+      const response = await apiRequest<{ report: ComparisonReport }>(`/api/experiments/compare?leftExperimentId=${encodeURIComponent(other.id)}&rightExperimentId=${encodeURIComponent(selected.id)}`);
+      setComparisonReport(response.report);
+      setCompareMode(true);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Comparison unavailable"); }
+  };
+
+  const loadReplay = async () => {
+    if (!selected || !selectedRunId) return setNotice("Run a sample first to open its evidence replay");
+    try {
+      const response = await apiRequest<{ replay: Replay }>(`/api/experiments/${selected.id}/runs/${selectedRunId}/replay`);
+      setReplay(response.replay);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Evidence replay unavailable"); }
   };
 
   const filteredWorkflows = useMemo(
@@ -614,10 +646,30 @@ export default function Home() {
 
                 <div className="actionStrip">
                   <button className="runButton" disabled={busy || !can("experiments:update")} onClick={() => void runSample()}>▶ RUN SAMPLE DATA</button>
-                  <button onClick={() => setCompareMode(!compareMode)}>◫ COMPARE</button>
+                  <button onClick={() => void loadComparison()}>◫ COMPARE RUNS</button>
+                  <button onClick={() => void loadReplay()} disabled={!selectedRunId}>◷ EVIDENCE REPLAY</button>
                   <button disabled={busy || !can("experiments:create")} onClick={() => void duplicateExperiment()}>⧉ DUPLICATE</button>
                   <button disabled={busy || !can("experiments:update")} onClick={() => void updateExperiment({ status: "Archived" }, "Experiment archived")}>ARCHIVE</button>
                 </div>
+
+                {comparisonReport && (
+                  <div className="comparisonPanel" aria-label="Experiment comparison report">
+                    <div className="panelTitle"><span>AUTHENTICATED COMPARISON REPORT</span><b>{comparisonReport.left.code} → {comparisonReport.right.code}</b></div>
+                    <div className="comparisonColumns">
+                      <section><span>METRIC DELTAS</span>{comparisonReport.metricDeltas.map((item) => <p key={item.metric}><strong>{item.metric}</strong> · {item.left} → {item.right} <b>{item.delta > 0 ? "+" : ""}{item.delta}</b></p>)}</section>
+                      <section className="aiColumn"><span>EVIDENCE SUMMARY</span><p>{comparisonReport.left.code}: {comparisonReport.evidenceSummary.left.verified}/{comparisonReport.evidenceSummary.left.total} verified</p><p>{comparisonReport.right.code}: {comparisonReport.evidenceSummary.right.verified}/{comparisonReport.evidenceSummary.right.total} verified</p><p>Pending gates: {comparisonReport.evidenceSummary.right.pending}</p></section>
+                    </div>
+                  </div>
+                )}
+
+                {replay && (
+                  <div className="evidenceSection" aria-label="Evidence timeline replay">
+                    <div className="panelTitle"><span>EVIDENCE TIMELINE / REPLAY</span><b>{replay.run.status.toUpperCase()}</b></div>
+                    <p className="inputNote">Correlation {replay.run.correlationId} · {replay.run.modelName ?? "recorded run"}</p>
+                    {replay.events.map((event, index) => <div className="historyRow" key={`${event.type}-${event.at}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><p><strong>{event.type}</strong>{event.claim ? ` · ${event.claim}` : ""}{event.source ? ` · ${event.source}` : ""}</p><time>{event.at}</time></div>)}
+                    {replay.result && <p className="inputNote">Immutable result {replay.result.resultHash} · {replay.result.workerReference}</p>}
+                  </div>
+                )}
 
                 {compareMode && (
                   <div className="comparisonPanel">

@@ -1,12 +1,13 @@
 import { listExperiments } from "@/server/experiments";
 import { ensureSampleRepairOrder } from "@/server/sample-repair-order";
-import { errorResponse, requireAccess } from "@/server/access";
+import { errorResponse, requestIdFor, requireAccess } from "@/server/access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const requestId = requestIdFor(request);
   try {
-    const context = await requireAccess("experiments:read");
+    const context = await requireAccess("experiments:read", requestId);
     const experiments = await listExperiments(context);
     const sampleRepairOrder =
       context.role === "viewer" ? null : await ensureSampleRepairOrder(context);
@@ -26,8 +27,9 @@ export async function GET() {
         optimisticConcurrency: true,
         softDeletion: true,
       },
-    });
+      requestId,
+    }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }

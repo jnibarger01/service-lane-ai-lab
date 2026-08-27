@@ -8,6 +8,8 @@ import {
   HttpError,
   requireAccess,
   requireSafeMutationRequest,
+  requestIdFor,
+  errorJson,
 } from "@/server/access";
 import {
   ConcurrencyError,
@@ -22,6 +24,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const requestId = requestIdFor(request);
   try {
     requireSafeMutationRequest(request);
     const payload = (await request.json()) as {
@@ -29,9 +32,9 @@ export async function PATCH(
       experiment?: unknown;
     };
     if (!Number.isInteger(payload.expectedVersion)) {
-      return Response.json({ error: "expectedVersion is required" }, { status: 400 });
+      return errorJson("expectedVersion is required", 400, requestId);
     }
-    const context = await requireAccess("experiments:read");
+    const context = await requireAccess("experiments:read", requestId);
     const { id } = await params;
     const candidate = payload.experiment as { status?: string } | undefined;
     const current = await context.db
@@ -56,20 +59,17 @@ export async function PATCH(
       payload.experiment,
       payload.expectedVersion as number,
     );
-    return Response.json({ experiments: await listExperiments(context) });
+    return Response.json({ experiments: await listExperiments(context), requestId }, { headers: { "x-request-id": requestId } });
   } catch (error) {
     if (error instanceof ValidationError) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return errorJson(error.message, 400, requestId);
     }
     if (error instanceof MissingExperimentError) {
-      return Response.json({ error: error.message }, { status: 404 });
+      return errorJson(error.message, 404, requestId, "experiment_not_found");
     }
     if (error instanceof ConcurrencyError) {
-      return Response.json(
-        { error: error.message, currentVersion: error.currentVersion },
-        { status: 409 },
-      );
+      return errorJson(error.message, 409, requestId, "concurrency_conflict", { currentVersion: error.currentVersion });
     }
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }

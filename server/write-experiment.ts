@@ -217,7 +217,8 @@ export async function updateExperimentRecord(
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message.includes("UNIQUE") || error instanceof ConcurrencyError) {
-      throw new ConcurrencyError();
+      const latest = await context.db.prepare("SELECT record_version FROM experiments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL").bind(experimentId, context.organization.id).first<{ record_version: number }>();
+      throw new ConcurrencyError(latest?.record_version);
     }
     throw error;
   }

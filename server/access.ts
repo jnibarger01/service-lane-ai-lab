@@ -39,7 +39,7 @@ type MembershipRow = {
 
 export async function requireAccess(
   permission: Permission,
-  requestId = crypto.randomUUID(),
+  requestId: string = crypto.randomUUID(),
 ): Promise<AccessContext> {
   const identity = await getChatGPTUser();
   if (!identity) throw new HttpError(401, "Authentication required");
@@ -150,18 +150,29 @@ async function bootstrapFirstAdministrator(
   ]);
 }
 
-export function errorResponse(error: unknown): Response {
+export function requestIdFor(request: Request): string {
+  const supplied = request.headers.get("x-request-id")?.trim();
+  return supplied && supplied.length <= 128 ? supplied : crypto.randomUUID();
+}
+
+export function errorResponse(error: unknown, requestId = crypto.randomUUID()): Response {
+  let status = 500;
+  let code = "internal_error";
+  let message = "Unexpected server error";
   if (error instanceof HttpError) {
-    return Response.json({ error: error.message }, { status: error.status });
+    status = error.status;
+    code = status >= 500 ? "internal_error" : "request_error";
+    message = error.message;
+  } else if (error instanceof Error && error.message.includes("no such table")) {
+    status = 503;
+    code = "database_unavailable";
+    message = "Database migration is not available yet";
   }
-  const message = error instanceof Error ? error.message : "Unexpected server error";
-  if (message.includes("no such table")) {
-    return Response.json(
-      { error: "Database migration is not available yet" },
-      { status: 503 },
-    );
-  }
-  return Response.json({ error: "Unexpected server error" }, { status: 500 });
+  return Response.json({ error: { code, message }, requestId }, { status, headers: { "x-request-id": requestId } });
+}
+
+export function errorJson(message: string, status: number, requestId: string, code = "request_error", details?: Record<string, unknown>) {
+  return Response.json({ error: { code, message, ...(details ?? {}) }, requestId }, { status, headers: { "x-request-id": requestId } });
 }
 
 export function requireSafeMutationRequest(request: Request) {
