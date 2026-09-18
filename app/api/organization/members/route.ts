@@ -1,6 +1,7 @@
 import { isRole, normalizeEmail } from "@/lib/foundation";
 import {
   errorResponse,
+  requestIdFor,
   requireAccess,
   requireSafeMutationRequest,
 } from "@/server/access";
@@ -14,9 +15,10 @@ type MemberWrite = {
   revoked?: boolean;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  const requestId = requestIdFor(request);
   try {
-    const context = await requireAccess("organization:manage");
+    const context = await requireAccess("organization:manage", requestId);
     const members = await context.db
       .prepare(
         `SELECT u.id, u.email, u.display_name, u.status, m.role,
@@ -30,14 +32,15 @@ export async function GET() {
       .all();
     return Response.json({ members: members.results });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }
 
 export async function POST(request: Request) {
+  const requestId = requestIdFor(request);
   try {
     requireSafeMutationRequest(request);
-    const context = await requireAccess("organization:manage");
+    const context = await requireAccess("organization:manage", requestId);
     const payload = (await request.json()) as MemberWrite;
     const email = normalizeEmail(payload.email ?? "");
     const displayName = payload.displayName?.trim() ?? "";
@@ -100,14 +103,15 @@ export async function POST(request: Request) {
     ]);
     return Response.json({ ok: true }, { status: 201 });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }
 
 export async function PATCH(request: Request) {
+  const requestId = requestIdFor(request);
   try {
     requireSafeMutationRequest(request);
-    const context = await requireAccess("organization:manage");
+    const context = await requireAccess("organization:manage", requestId);
     const payload = (await request.json()) as MemberWrite;
     const email = normalizeEmail(payload.email ?? "");
     if (!email || email === context.user.email) {
@@ -168,6 +172,6 @@ export async function PATCH(request: Request) {
     }
     return Response.json({ ok: true });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }

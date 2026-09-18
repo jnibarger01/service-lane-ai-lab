@@ -1,5 +1,7 @@
 import {
   errorResponse,
+  errorJson,
+  requestIdFor,
   requireAccess,
   requireSafeMutationRequest,
 } from "@/server/access";
@@ -33,13 +35,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const requestId = requestIdFor(request);
   try {
     requireSafeMutationRequest(request);
     const payload = (await request.json()) as { expectedVersion?: number };
     if (!Number.isInteger(payload.expectedVersion)) {
-      return Response.json({ error: "expectedVersion is required" }, { status: 400 });
+      return errorJson("expectedVersion is required", 400, requestId);
     }
-    const context = await requireAccess("experiments:update");
+    const context = await requireAccess("experiments:update", requestId);
     const { id: experimentId } = await params;
     const current = await context.db
       .prepare(
@@ -223,7 +226,8 @@ export async function POST(
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (message.includes("UNIQUE") || error instanceof ConcurrencyError) {
-        throw new ConcurrencyError();
+        const latest = await context.db.prepare("SELECT record_version FROM experiments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL").bind(experimentId, context.organization.id).first<{ record_version: number }>();
+        throw new ConcurrencyError(latest?.record_version);
       }
       throw error;
     }
@@ -238,18 +242,16 @@ export async function POST(
         verificationStatus: "pending_human_review",
       },
       experiments: await listExperiments(context),
-    });
+      requestId,
+    }, { headers: { "x-request-id": requestId } });
   } catch (error) {
     if (error instanceof MissingExperimentError) {
-      return Response.json({ error: error.message }, { status: 404 });
+      return errorJson(error.message, 404, requestId, "experiment_not_found");
     }
     if (error instanceof ConcurrencyError) {
-      return Response.json(
-        { error: error.message, currentVersion: error.currentVersion },
-        { status: 409 },
-      );
+      return errorJson(error.message, 409, requestId, "concurrency_conflict", { currentVersion: error.currentVersion });
     }
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }
 

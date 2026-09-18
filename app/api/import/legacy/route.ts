@@ -1,6 +1,8 @@
 import { ValidationError } from "@/lib/foundation";
 import {
   errorResponse,
+  errorJson,
+  requestIdFor,
   requireAccess,
   requireSafeMutationRequest,
 } from "@/server/access";
@@ -10,15 +12,13 @@ import { listExperiments } from "@/server/experiments";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const requestId = requestIdFor(request);
   try {
     requireSafeMutationRequest(request);
-    const context = await requireAccess("experiments:create");
+    const context = await requireAccess("experiments:create", requestId);
     const payload = (await request.json()) as { experiments?: unknown[] };
     if (!Array.isArray(payload.experiments) || payload.experiments.length > 100) {
-      return Response.json(
-        { error: "experiments must be an array of at most 100 records" },
-        { status: 400 },
-      );
+      return errorJson("experiments must be an array of at most 100 records", 400, requestId);
     }
     let imported = 0;
     for (const experiment of payload.experiments) {
@@ -30,11 +30,12 @@ export async function POST(request: Request) {
     return Response.json({
       imported,
       experiments: await listExperiments(context),
-    });
+      requestId,
+    }, { headers: { "x-request-id": requestId } });
   } catch (error) {
     if (error instanceof ValidationError) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return errorJson(error.message, 400, requestId);
     }
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }

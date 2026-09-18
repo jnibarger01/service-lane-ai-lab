@@ -1,4 +1,4 @@
-import { errorResponse, requireAccess } from "@/server/access";
+import { errorResponse, requestIdFor, requireAccess } from "@/server/access";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +14,10 @@ const exportTables = [
   "audit_events",
 ] as const;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const requestId = requestIdFor(request);
   try {
-    const context = await requireAccess("organization:manage");
+    const context = await requireAccess("organization:manage", requestId);
     const records: Record<string, unknown[]> = {};
     for (const table of exportTables) {
       const result = await context.db
@@ -30,8 +31,9 @@ export async function GET() {
       exportedAt: new Date().toISOString(),
       organization: context.organization,
       records,
-    });
+      requestId,
+    }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }

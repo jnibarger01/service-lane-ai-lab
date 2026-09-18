@@ -3,6 +3,8 @@ import {
   errorResponse,
   requireAccess,
   requireSafeMutationRequest,
+  requestIdFor,
+  errorJson,
 } from "@/server/access";
 import {
   createExperimentRecord,
@@ -12,30 +14,32 @@ import { listExperiments } from "@/server/experiments";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const requestId = requestIdFor(request);
   try {
-    const context = await requireAccess("experiments:read");
-    return Response.json({ experiments: await listExperiments(context) });
+    const context = await requireAccess("experiments:read", requestId);
+    return Response.json({ experiments: await listExperiments(context), requestId }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }
 
 export async function POST(request: Request) {
+  const requestId = requestIdFor(request);
   try {
     requireSafeMutationRequest(request);
-    const context = await requireAccess("experiments:create");
+    const context = await requireAccess("experiments:create", requestId);
     const payload = await request.json();
     await createExperimentRecord(context, payload);
     const experiments = await listExperiments(context);
     return Response.json({ experiments }, { status: 201 });
   } catch (error) {
     if (error instanceof ValidationError) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return errorJson(error.message, 400, requestId);
     }
     if (error instanceof DuplicateExperimentError) {
-      return Response.json({ error: error.message }, { status: 409 });
+      return errorJson(error.message, 409, requestId, "duplicate_experiment");
     }
-    return errorResponse(error);
+    return errorResponse(error, requestId);
   }
 }

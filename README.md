@@ -12,6 +12,9 @@ The application helps service teams define experiments, review evidence, simulat
 - Explore advisor, technician, management, and warranty workflow candidates
 - Review operational scenarios and required stop conditions
 - Compare workflow timing and estimate ROI
+- Compare authenticated organization-scoped experiment runs with metric deltas and evidence summaries
+- Replay a selected run as an evidence timeline with correlation and immutable result references
+- Return correlation IDs and a structured non-secret error envelope from API routes
 - Persist tenant-scoped records with optimistic concurrency and soft deletion
 - Export organization data as JSON
 - Enforce authenticated, role-based access on API routes
@@ -96,6 +99,21 @@ The first authenticated user may bootstrap the first organization only while the
 - Do not commit customer information, credentials, local databases, exports, or environment files.
 
 See [docs/operations.md](docs/operations.md) for backup, restore, migration, archival, and incident-response procedures.
+
+## Reports and replay
+
+After an authenticated user runs sample data, use **Compare runs** in the experiment
+view to compare the latest organization-owned runs (or call
+`GET /api/experiments/compare?leftExperimentId=<id>&rightExperimentId=<id>`).
+Use **Evidence replay** to load `GET
+/api/experiments/<experimentId>/runs/<runId>/replay`, which returns ordered run,
+evidence, and result events. Both endpoints require `experiments:read` and
+never query records outside the active organization.
+
+API errors use `{ error: { code, message, ...metadata }, requestId }` and repeat
+that request ID in `x-request-id`. A concurrency conflict includes the current
+record version only for the organization-scoped record, allowing clients to
+refresh without exposing tenant data.
 
 ## Deployment
 
